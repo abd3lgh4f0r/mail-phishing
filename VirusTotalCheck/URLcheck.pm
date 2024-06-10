@@ -1,14 +1,41 @@
-#!/usr/bin/perl
+package CustomSpamDetectorVT;
 
 use strict;
 use warnings;
+use Mail::SpamAssassin::Plugin;
 use LWP::UserAgent;
 use JSON;
+
+our @ISA = qw(Mail::SpamAssassin::Plugin);
+
+sub new {
+    my ($class, $mailsa) = @_;
+    my $self = $class->SUPER::new($mailsa);
+    bless $self, $class;
+    $self->register_eval_rule("check_for_malicious_url_in_body");
+    return $self;
+}
+
+sub check_for_malicious_url_in_body {
+    my ($self, $permsgstatus) = @_;
+
+    my $body_text_array = $permsgstatus->get_decoded_body_text_array();
+    foreach my $line (@$body_text_array) {
+        while ($line =~ m{\bhttps?://[^\s<>"']+\b}gi) {
+            my $url = $&;
+            if (check_url_with_virustotal($url)) {
+                $permsgstatus->test_log("Detected a malicious URL in the email body: $url");
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
 
 sub check_url_with_virustotal {
     my ($url) = @_;
 
-    my $apikey = '' # Replace 'YOUR_VIRUSTOTAL_API_KEY' with your actual API key
+    my $apikey = 'Virus total API'; 
     my $ua = LWP::UserAgent->new;
     my $endpoint = 'https://www.virustotal.com/vtapi/v2/url/report';
 
@@ -29,22 +56,11 @@ sub check_url_with_virustotal {
             }
         }
 
-        # Construct and return the report
-        my $report = {
-            url => $url,
-            scan_date => $result->{'scan_date'},
-            positives => $result->{'positives'},
-            total => $result->{'total'},
-            scan_result => $result->{'positives'} > 0 ? "Malicious" : "Clean",
-            malicious_count => $malicious_count
-        };
-        return $report;
+        return $malicious_count;
     } else {
-        die "Error: " . $response->status_line . "\n";
+        warn "Error: " . $response->status_line . "\n";
+        return 0;
     }
 }
 
-# Example usage
-my $url = 'http://google.com';
-my $report = check_url_with_virustotal($url);
-print "Malicious Count: $report->{malicious_count}\n";
+1;
